@@ -1,471 +1,4 @@
 ;(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
-    }
-
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            if (ev.source === window && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
-
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
-    }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-
-},{}],2:[function(require,module,exports){
-var Freight = require('./src/freight.js');
-
-module.exports = Freight;
-},{"./src/freight.js":4}],3:[function(require,module,exports){
-var Definition = function Definition(id, conf, container) {
-  var self = this;
-
-  /**
-   * the id of the definition
-   * @type {string}
-   */
-  self.id = id;
-
-  /**
-   * The callable that creates the service
-   * @type {Function}
-   */
-  self.fn = false;
-
-  /**
-   * The arguments that will be send to the callable when called, order matters
-   * @type {Array}
-   */
-  self.args = [];
-
-  /**
-   * The tags that the service will receive
-   * @type {Array}
-   */
-  self.tags = [];
-
-  /**
-   * Contains the last created instance of the service, this is reused when the service is a shared service
-   * @type {Boolean}
-   */
-  self.service = false;
-
-  /**
-   * Indicate wether the service behaves like a singleton; returning the same instance on repeated requests
-   * @type {Boolean}
-   */
-  self.shared = false;
-
-  /**
-   * Create an instance from this definition
-   * 
-   * @method retrieve()
-   * @return {mixed}
-   */
-  self.retrieve = function retrieve() {
-
-    if(self.shared === true && self.service !== false) {
-      return self.service;
-    }
-
-    var service = self.fn();
-    if(service === undefined) {
-      throw new Error('"'+id+'" service returned "'+undefined+'" on instantiation.');
-    }
-
-    self.service = service;
-    return service;
-  };
-
-  /**
-   * Add an argument (at the end) to the definition
-   *
-   * @method addArgument
-   * @param {mixed} arg
-   * @chainable
-   */
-  self.addArgument = function addArgument(arg) {
-    self.args.push(arg);
-    return self;
-  };
-
-  /**
-   * Tag the service
-   *
-   * @method addTag()
-   * @param {string} tag
-   * @chainable
-   */
-  self.addTag = function addTag(tag) {
-    if(self.tags.indexOf(tag) === -1)
-      self.tags.push(tag);
-
-    return self;
-  };
-
-  /**
-   * Resolve arguments that are container ids
-   * @return {Array} the resolved arguments
-   */
-  self.resolveArguments = function resolveArguments(arr) {
-    arr = typeof arr !== 'undefined' ? arr : self.args;
-
-    arr.forEach(function(arg, i){
-      if(container.isId(arg)) {
-        arr[i] = container.get(arg.replace(container.idPrefix, ''));
-      } else if(Array.isArray(arg)) {
-        arr[i] = self.resolveArguments(arg);
-      } else if(arg.constructor == Object) {
-        Object.keys(arg).forEach(function(k){
-          if(container.isId(arg[k]))
-            arg[k] = container.get(arg[k].replace(container.idPrefix, ''));
-        });
-      }
-
-    });
-
-    return arr;
-  };
-
-  /**
-   * Create an callable that can creates instances for this definitions
-   *
-   * @method
-   * @private
-   * @param  {string} fnParam the container parameter that contains the constructor or factory function
-   * @param  {string} type either 'c' for constructor or 'f' for factory
-   * @return {Function}
-   */
-  self._createCallable = function(fnParam, type) {
-    var res = false;
-
-    var getCheckCallable = function(p) {
-      var fn = false;
-      if(typeof p === 'function') {
-        fn = p;
-      } else {
-        try {
-          fn = container.getParameter(p.replace(container.idPrefix, ''));
-        } catch(e) {
-          throw new Error('Whene trying to instanciate service "'+self.id+'", the parameter specifying the '+((type == 'f') ? ('factory') : ('constructor'))+': "'+fnParam+'" did not exist.');
-        }
-      }
-      
-      if(typeof fn !== 'function') {
-        throw new Error('Whene trying to instanciate service "'+self.id+'", the parameter specifying the '+((type == 'f') ? ('factory') : ('constructor'))+': "'+fnParam+'" did not return a function, instead received: "'+fn+'"');
-      }
-
-      return fn;
-    };
-
-    function neu(constructor, args) {
-        var instance = Object.create(constructor.prototype);
-        var result = constructor.apply(instance, args);
-        return typeof result === 'object' ? result : instance;
-    }
-
-    //constructor type use new
-    if(type === 'c') {
-      res = function() {      
-        var _c = new getCheckCallable(fnParam);
-        var _args = self.resolveArguments();
-        return neu(_c, _args); 
-      };
-
-      return res;
-    } 
-
-    //factory type just call it
-    return function() {      
-        return getCheckCallable(fnParam).apply(container, self.resolveArguments()); //create using factory fn
-    };
-    
-  };
-
-  /**
-   * Apply an defintion configuration
-   * @param  {Object} conf
-   * @return {Definition}
-   * @chainable
-   */
-  self.configure = function(conf) {
-
-    //shared
-    if(conf.shared !== undefined) {
-        if(String(conf.shared).toLowerCase() === 'true') {
-          self.shared = true;
-        } else if(String(conf.shared).toLowerCase() === 'false') {
-          self.shared = false;
-        } else {
-          throw new Error('Configuration of "'+self.id+'" shared should be an boolean, received: "'+conf+'"');
-        }
-    }
-
-    //constructing
-    var fnParam = conf.constructorFn;
-    var type = 'c';
-    if(fnParam === undefined) {
-      fnParam = conf.factoryFn;
-      type = 'f';
-    } else if(conf.factoryFn !== undefined) {
-      throw new Error('Configuration of "'+self.id+'" should specify a constructor OR an factory function, not both - received: "'+conf+'"');
-    }
-
-    if(fnParam === undefined)
-      throw new Error('Configuration of "'+self.id+'" must either specify an constructor or an factory function - received: "'+conf+'"');
-
-    if(container.isId(fnParam) === false && typeof fnParam !== 'function') {
-      throw new Error('Constructor or an factory function of "'+self.id+'" should be specified using a parameter id - received: "'+fnParam+'"');
-    }
-
-    self.fn = self._createCallable(fnParam, type);
-
-    //arguments
-    var args = conf.arguments;
-    if(args !== undefined) {
-
-      if(!Array.isArray(args))
-        throw new Error('Instantiation arguments of "'+self.id+'" should be specified as an array - received: "'+args+'"');
-
-      args.forEach(function(arg){
-        self.addArgument(arg);
-      });
-
-    }
-
-    //tags
-    var tags = conf.tags;
-    if(tags !== undefined) {
-
-      if(!Array.isArray(tags))
-        throw new Error('Service tags of "'+self.id+'" should be specified as an array - received: "'+tags+'"');
-
-      tags.forEach(function(tag){
-        self.addTag(tag);
-      });
-
-    }
-
-    return self;
-  };
-
-  //configure the definition with the provided argument
-  self.configure(conf);
-
-};
-
-module.exports = Definition;
-},{}],4:[function(require,module,exports){
-var Definition = require('./definition.js');
-
-var Freight = function() {
-  var self = this;
-
-  /**
-   * Determin how service id are distinques of normal string arguments in configuration
-   * @type {String}
-   */
-  self.idPrefix = ':';
-
-  /**
-   * the array of definitions this container managers
-   * @type {Array}
-   * @private
-   */
-  self._definitions = [];
-
-  /**
-   * the hash with parameters this container holds
-   * @type {Object}
-   * @private
-   */
-  self._parameters = {};
-
-  /**
-   * Get and service of parameter from the container
-   *
-   * @method getService()
-   * @param  {string} id
-   * @return {mixed}
-   */
-  self.get = function get(id) {
-    var res = false;
-    try {
-      res = self.getParameter(id);  
-    } catch(e) {
-      res = self.getService(id);
-    }
-    
-    return res;
-  };
-
-  /**
-   * Check wether the string an parameter id
-   * @method isId()
-   * @param  {string}  str
-   * @return {Boolean}
-   */
-  self.isId = function isId(val) {
-    if(typeof val !== 'string')
-      return false;
-
-    return ((val.indexOf(self.idPrefix) === 0) ? (true) : (false));
-  };
-
-  /**
-   * Set a parameter on this container
-   * 
-   * @method setParameter()
-   * @param {string} id
-   * @param {mixed} val
-   * @chainable
-   */
-  self.setParameter = function setParameter(id, val) {
-    self._parameters[id] = val;
-    return self;
-  };
-
-  /**
-   * Retrieve a parameter from the container
-   * @param  {string} id
-   * @return {mixed}
-   */
-  self.getParameter = function getParameter(id) {
-    var res = self._parameters[id];
-    if(res === undefined)
-      throw new Error('Parameter "'+id+'" not found.');
-
-    return res;
-  };
-
-  /**
-   * Return an array of service ids from services with the given tag
-   *
-   * @method findTaggedServiceIds()
-   * @param  {string} tag
-   * @return {Array}
-   */
-  self.findTaggedServiceIds = function findTaggedServiceIds(tag) {
-    var res = [];
-    self._definitions.forEach(function(d){
-      if(d.tags.indexOf(tag) !== -1) {
-        res.push(d.id);
-      }
-    });
-    return res;
-  };
-
-  /**
-   * Return a service definition from the container
-   *
-   * @method getDefinition()
-   * @param  {string} id
-   * @return {Definition}
-   */
-  self.getDefinition = function getDefinition(id) {
-    var def = false;
-    self._definitions.forEach(function(d){
-      if(d.id == id) {
-        def = d;
-      }
-    });
-
-    return def;
-  };
-
-  /**
-   * Return an service by its id
-   *
-   * @method getService()
-   * @param  {string} id
-   * @return {mixed}
-   */
-  self.getService = function getService(id) {  
-    var def = self.getDefinition(id);
-
-    if(def === false)
-      throw new Error('Service "'+id+'" not found.');
-
-    var service = def.retrieve();
-
-    return service;
-  };
-
-
-  /**
-   * Register a new service as the specified id
-   * 
-   * @method register()
-   * @param  {string}   id
-   * @param  {Object} conf the configuration hash for the individual service
-   * @return {Definition}
-   */
-  self.register = function register(id, conf) {
-    var def = new Definition(id, conf, self);
-
-    self._definitions.push(def);
-    return def;
-  };
-
-  /**
-   * Register several definitions from an configuration hash (e.g. json)
-   * 
-   * @method  registerAll()
-   * @param  {Object} conf the services
-   * @return  {Array} a array of registered definitions
-   */
-  self.registerAll = function build(conf) {
-    var res = [];
-    Object.keys(conf).forEach(function(id){
-      res.push(self.register(id, conf[id]));
-    });
-    return res;
-  };
-
-};
-
-module.exports = Freight;
-},{"./definition.js":3}],5:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -519,7 +52,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray ) {
 
 };
 
-},{"./assert.js":6,"./some_promise_array.js":39}],6:[function(require,module,exports){
+},{"./assert.js":2,"./some_promise_array.js":34}],2:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -570,7 +103,7 @@ module.exports = (function(){
     };
 })();
 
-},{}],7:[function(require,module,exports){
+},{}],3:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -667,7 +200,7 @@ Async.prototype._reset = function Async$_reset() {
 
 module.exports = new Async();
 
-},{"./assert.js":6,"./queue.js":31,"./schedule.js":35,"./util.js":42}],8:[function(require,module,exports){
+},{"./assert.js":2,"./queue.js":27,"./schedule.js":30,"./util.js":37}],4:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -692,7 +225,7 @@ module.exports = new Async();
 "use strict";
 var Promise = require("./promise.js")();
 module.exports = Promise;
-},{"./promise.js":23}],9:[function(require,module,exports){
+},{"./promise.js":19}],5:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -748,7 +281,7 @@ module.exports = function( Promise ) {
     };
 };
 
-},{}],10:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -811,7 +344,7 @@ module.exports = function(Promise, INTERNAL) {
     };
 };
 
-},{"./async.js":7,"./errors.js":14}],11:[function(require,module,exports){
+},{"./async.js":3,"./errors.js":10}],7:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1047,7 +580,7 @@ var captureStackTrace = (function stackDetection() {
 return CapturedTrace;
 };
 
-},{"./assert.js":6,"./es5.js":16,"./util.js":42}],12:[function(require,module,exports){
+},{"./assert.js":2,"./es5.js":12,"./util.js":37}],8:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1134,7 +667,7 @@ CatchFilter.prototype.doFilter = function CatchFilter$_doFilter( e ) {
 
 module.exports = CatchFilter;
 
-},{"./errors.js":14,"./es5.js":16,"./util.js":42}],13:[function(require,module,exports){
+},{"./errors.js":10,"./es5.js":12,"./util.js":37}],9:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1223,7 +756,7 @@ function Promise$thenThrow( reason ) {
 };
 };
 
-},{"./assert.js":6,"./util.js":42}],14:[function(require,module,exports){
+},{"./assert.js":2,"./util.js":37}],10:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1369,7 +902,7 @@ module.exports = {
     canAttach: canAttach
 };
 
-},{"./es5.js":16,"./global.js":19,"./util.js":42}],15:[function(require,module,exports){
+},{"./es5.js":12,"./global.js":15,"./util.js":37}],11:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1407,7 +940,7 @@ function apiRejection( msg ) {
 
 return apiRejection;
 };
-},{"./errors.js":14}],16:[function(require,module,exports){
+},{"./errors.js":10}],12:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1497,7 +1030,7 @@ else {
     };
 }
 
-},{}],17:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1588,7 +1121,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray, apiRejection ) {
     };
 };
 
-},{"./assert.js":6}],18:[function(require,module,exports){
+},{"./assert.js":2}],14:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1641,7 +1174,7 @@ module.exports = function( Promise, apiRejection ) {
     };
 };
 
-},{"./errors.js":14,"./promise_spawn.js":27}],19:[function(require,module,exports){
+},{"./errors.js":10,"./promise_spawn.js":23}],15:[function(require,module,exports){
 var process=require("__browserify_process"),global=typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {};/**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1681,7 +1214,7 @@ module.exports = (function(){
     }
 })();
 
-},{"__browserify_process":1}],20:[function(require,module,exports){
+},{"__browserify_process":38}],16:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1799,7 +1332,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray, apiRejection ) {
     };
 };
 
-},{"./assert.js":6}],21:[function(require,module,exports){
+},{"./assert.js":2}],17:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1864,7 +1397,7 @@ module.exports = function( Promise ) {
     };
 };
 
-},{"./assert.js":6,"./async.js":7,"./util.js":42}],22:[function(require,module,exports){
+},{"./assert.js":2,"./async.js":3,"./util.js":37}],18:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -1949,7 +1482,7 @@ module.exports = function( Promise ) {
         }
     };
 };
-},{"./assert.js":6,"./async.js":7,"./util.js":42}],23:[function(require,module,exports){
+},{"./assert.js":2,"./async.js":3,"./util.js":37}],19:[function(require,module,exports){
 var process=require("__browserify_process");/**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -2958,7 +2491,7 @@ Promise.TypeError = TypeError;
 Promise.RejectionError = RejectionError;
 require('./synchronous_inspection.js')(Promise);
 require('./any.js')(Promise,Promise$_All,PromiseArray);
-require('./race.js')(Promise,Promise$_All,PromiseArray);
+require('./race.js')(Promise,INTERNAL);
 require('./call_get.js')(Promise);
 require('./filter.js')(Promise,Promise$_All,PromiseArray,apiRejection);
 require('./generators.js')(Promise,apiRejection);
@@ -2977,7 +2510,7 @@ return Promise;
 
 };
 
-},{"./any.js":5,"./assert.js":6,"./async.js":7,"./call_get.js":9,"./cancel.js":10,"./captured_trace.js":11,"./catch_filter.js":12,"./direct_resolve.js":13,"./errors.js":14,"./errors_api_rejection":15,"./filter.js":17,"./generators.js":18,"./global.js":19,"./map.js":20,"./nodeify.js":21,"./progress.js":22,"./promise_array.js":24,"./promise_resolver.js":26,"./promisify.js":28,"./props.js":30,"./race.js":32,"./reduce.js":34,"./settle.js":36,"./some.js":38,"./synchronous_inspection.js":40,"./thenables.js":41,"./util.js":42,"__browserify_process":1}],24:[function(require,module,exports){
+},{"./any.js":1,"./assert.js":2,"./async.js":3,"./call_get.js":5,"./cancel.js":6,"./captured_trace.js":7,"./catch_filter.js":8,"./direct_resolve.js":9,"./errors.js":10,"./errors_api_rejection":11,"./filter.js":13,"./generators.js":14,"./global.js":15,"./map.js":16,"./nodeify.js":17,"./progress.js":18,"./promise_array.js":20,"./promise_resolver.js":22,"./promisify.js":24,"./props.js":26,"./race.js":28,"./reduce.js":29,"./settle.js":31,"./some.js":33,"./synchronous_inspection.js":35,"./thenables.js":36,"./util.js":37,"__browserify_process":38}],20:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3013,8 +2546,6 @@ function toResolutionValue( val ) {
     case 0: return void 0;
     case 1: return [];
     case 2: return {};
-    case 3:
-        return Promise.defer().promise;
     }
 }
 
@@ -3208,7 +2739,7 @@ function PromiseArray$_promiseRejected( reason ) {
 return PromiseArray;
 };
 
-},{"./assert.js":6,"./async.js":7,"./errors.js":14,"./util.js":42}],25:[function(require,module,exports){
+},{"./assert.js":2,"./async.js":3,"./errors.js":10,"./util.js":37}],21:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3277,7 +2808,7 @@ PromiseInspection.prototype.error = function PromiseInspection$error() {
 
 module.exports = PromiseInspection;
 
-},{"./errors.js":14}],26:[function(require,module,exports){
+},{"./errors.js":10}],22:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3405,7 +2936,7 @@ PromiseResolver.prototype.toJSON = function PromiseResolver$toJSON() {
 
 module.exports = PromiseResolver;
 
-},{"./async.js":7,"./errors.js":14,"./es5.js":16,"./util.js":42}],27:[function(require,module,exports){
+},{"./async.js":3,"./errors.js":10,"./es5.js":12,"./util.js":37}],23:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3508,7 +3039,7 @@ PromiseSpawn.prototype._next = function PromiseSpawn$_next( value ) {
 return PromiseSpawn;
 };
 
-},{"./errors.js":14,"./util.js":42}],28:[function(require,module,exports){
+},{"./errors.js":10,"./util.js":37}],24:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3749,7 +3280,7 @@ Promise.promisifyAll = function Promise$PromisifyAll( target ) {
 };
 
 
-},{"./assert.js":6,"./errors.js":14,"./es5.js":16,"./promise_resolver.js":26,"./util.js":42}],29:[function(require,module,exports){
+},{"./assert.js":2,"./errors.js":10,"./es5.js":12,"./promise_resolver.js":22,"./util.js":37}],25:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3828,7 +3359,7 @@ PromiseArray.PropertiesPromiseArray = PropertiesPromiseArray;
 return PropertiesPromiseArray;
 };
 
-},{"./assert.js":6,"./es5.js":16,"./util.js":42}],30:[function(require,module,exports){
+},{"./assert.js":2,"./es5.js":12,"./util.js":37}],26:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -3892,7 +3423,7 @@ module.exports = function( Promise, PromiseArray ) {
     };
 };
 
-},{"./errors_api_rejection":15,"./properties_promise_array.js":29,"./util.js":42}],31:[function(require,module,exports){
+},{"./errors_api_rejection":11,"./properties_promise_array.js":25,"./util.js":37}],27:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4029,7 +3560,7 @@ Queue.prototype._resizeTo = function Queue$_resizeTo( capacity ) {
 
 module.exports = Queue;
 
-},{"./assert.js":6}],32:[function(require,module,exports){
+},{"./assert.js":2}],28:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4052,82 +3583,64 @@ module.exports = Queue;
  * THE SOFTWARE.
  */
 "use strict";
-module.exports = function( Promise, Promise$_All, PromiseArray ) {
+module.exports = function(Promise, INTERNAL) {
+    var apiRejection = require("./errors_api_rejection.js")(Promise);
+    var isArray = require("./util.js").isArray;
 
-    var RacePromiseArray =
-        require( "./race_promise_array.js" )(Promise, PromiseArray);
+    function raceLater(promise, caller) {
+        return promise.then(function(array) {
+            return Promise$_Race(array, caller, promise);
+        });
+    }
 
-    function Promise$_Race( promises, useBound, caller ) {
-        return Promise$_All(
-            promises,
-            RacePromiseArray,
-            caller,
-            useBound === true ? promises._boundTo : void 0
-        ).promise();
+    var hasOwn = {}.hasOwnProperty;
+    function Promise$_Race(promises, caller, parent) {
+        var maybePromise = Promise._cast(promises, caller, void 0);
+
+        if (Promise.is(maybePromise)) {
+            return raceLater(maybePromise, caller);
+        }
+        else if (!isArray(promises)) {
+            return apiRejection("expecting an array, a promise or a thenable");
+        }
+
+        var ret = new Promise(INTERNAL);
+        ret._setTrace(caller, parent);
+        if (parent !== void 0) {
+            ret._setBoundTo(parent._boundTo);
+        }
+        var fulfill = ret._fulfill;
+        var reject = ret._reject;
+        for( var i = 0, len = promises.length; i < len; ++i ) {
+            var val = promises[i];
+
+            if (val === void 0 && !(hasOwn.call(promises, i))) {
+                continue;
+            }
+
+            Promise.cast(val)._then(
+                fulfill,
+                reject,
+                void 0,
+                ret,
+                null,
+                caller
+            );
+        }
+        return ret;
     }
 
     Promise.race = function Promise$Race( promises ) {
-        return Promise$_Race( promises, false, Promise.race );
+        return Promise$_Race(promises, Promise.race, void 0);
     };
 
     Promise.prototype.race = function Promise$race() {
-        return Promise$_Race( this, true, this.race );
+        return Promise$_Race(this, this.race, void 0);
     };
 
 };
 
-},{"./race_promise_array.js":33}],33:[function(require,module,exports){
-/**
- * Copyright (c) 2013 Petka Antonov
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:</p>
- * 
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
-"use strict";
-module.exports = function( Promise, PromiseArray ) {
-var util = require("./util.js");
-var inherits = util.inherits;
-function RacePromiseArray( values, caller, boundTo ) {
-    this.constructor$( values, caller, boundTo );
-}
-inherits( RacePromiseArray, PromiseArray );
-
-RacePromiseArray.prototype._init =
-function RacePromiseArray$_init() {
-    this._init$(void 0, 3);
-};
-
-RacePromiseArray.prototype._promiseFulfilled =
-function RacePromiseArray$_promiseFulfilled( value ) {
-    if( this._isResolved() ) return;
-    this._fulfill( value );
-
-};
-RacePromiseArray.prototype._promiseRejected =
-function RacePromiseArray$_promiseRejected( reason ) {
-    if( this._isResolved() ) return;
-    this._reject( reason );
-};
-
-return RacePromiseArray;
-};
-
-},{"./util.js":42}],34:[function(require,module,exports){
+},{"./errors_api_rejection.js":11,"./util.js":37}],29:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4266,7 +3779,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray, apiRejection ) {
     };
 };
 
-},{"./assert.js":6}],35:[function(require,module,exports){
+},{"./assert.js":2}],30:[function(require,module,exports){
 var process=require("__browserify_process");/**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4390,7 +3903,7 @@ else {
 
 module.exports = schedule;
 
-},{"./assert.js":6,"./global.js":19,"__browserify_process":1}],36:[function(require,module,exports){
+},{"./assert.js":2,"./global.js":15,"__browserify_process":38}],31:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4436,7 +3949,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray ) {
     };
 
 };
-},{"./settled_promise_array.js":37}],37:[function(require,module,exports){
+},{"./settled_promise_array.js":32}],32:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4497,7 +4010,7 @@ function SettledPromiseArray$_promiseRejected( reason, index ) {
 
 return SettledPromiseArray;
 };
-},{"./assert.js":6,"./promise_inspection.js":25,"./util.js":42}],38:[function(require,module,exports){
+},{"./assert.js":2,"./promise_inspection.js":21,"./util.js":37}],33:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4553,7 +4066,7 @@ module.exports = function( Promise, Promise$_All, PromiseArray, apiRejection ) {
 
 };
 
-},{"./assert.js":6,"./some_promise_array.js":39}],39:[function(require,module,exports){
+},{"./assert.js":2,"./some_promise_array.js":34}],34:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4672,7 +4185,7 @@ function SomePromiseArray$_canPossiblyFulfill() {
 return SomePromiseArray;
 };
 
-},{"./util.js":42}],40:[function(require,module,exports){
+},{"./util.js":37}],35:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4703,7 +4216,7 @@ module.exports = function( Promise ) {
     };
 };
 
-},{"./promise_inspection.js":25}],41:[function(require,module,exports){
+},{"./promise_inspection.js":21}],36:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -4807,7 +4320,7 @@ module.exports = function( Promise ) {
     Promise._cast = Promise$_Cast;
 };
 
-},{"./assert.js":6,"./util.js":42}],42:[function(require,module,exports){
+},{"./assert.js":2,"./util.js":37}],37:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Petka Antonov
  * 
@@ -5001,7 +4514,474 @@ module.exports ={
     maybeWrapAsError: maybeWrapAsError
 };
 
-},{"./assert.js":6,"./es5.js":16,"./global.js":19}],43:[function(require,module,exports){
+},{"./assert.js":2,"./es5.js":12,"./global.js":15}],38:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            if (ev.source === window && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],39:[function(require,module,exports){
+var Freight = require('./src/freight.js');
+
+module.exports = Freight;
+},{"./src/freight.js":41}],40:[function(require,module,exports){
+var Definition = function Definition(id, conf, container) {
+  var self = this;
+
+  /**
+   * the id of the definition
+   * @type {string}
+   */
+  self.id = id;
+
+  /**
+   * The callable that creates the service
+   * @type {Function}
+   */
+  self.fn = false;
+
+  /**
+   * The arguments that will be send to the callable when called, order matters
+   * @type {Array}
+   */
+  self.args = [];
+
+  /**
+   * The tags that the service will receive
+   * @type {Array}
+   */
+  self.tags = [];
+
+  /**
+   * Contains the last created instance of the service, this is reused when the service is a shared service
+   * @type {Boolean}
+   */
+  self.service = false;
+
+  /**
+   * Indicate wether the service behaves like a singleton; returning the same instance on repeated requests
+   * @type {Boolean}
+   */
+  self.shared = false;
+
+  /**
+   * Create an instance from this definition
+   * 
+   * @method retrieve()
+   * @return {mixed}
+   */
+  self.retrieve = function retrieve() {
+
+    if(self.shared === true && self.service !== false) {
+      return self.service;
+    }
+
+    var service = self.fn();
+    if(service === undefined) {
+      throw new Error('"'+id+'" service returned "'+undefined+'" on instantiation.');
+    }
+
+    self.service = service;
+    return service;
+  };
+
+  /**
+   * Add an argument (at the end) to the definition
+   *
+   * @method addArgument
+   * @param {mixed} arg
+   * @chainable
+   */
+  self.addArgument = function addArgument(arg) {
+    self.args.push(arg);
+    return self;
+  };
+
+  /**
+   * Tag the service
+   *
+   * @method addTag()
+   * @param {string} tag
+   * @chainable
+   */
+  self.addTag = function addTag(tag) {
+    if(self.tags.indexOf(tag) === -1)
+      self.tags.push(tag);
+
+    return self;
+  };
+
+  /**
+   * Resolve arguments that are container ids
+   * @return {Array} the resolved arguments
+   */
+  self.resolveArguments = function resolveArguments(arr) {
+    arr = typeof arr !== 'undefined' ? arr : self.args;
+
+    arr.forEach(function(arg, i){
+      if(container.isId(arg)) {
+        arr[i] = container.get(arg.replace(container.idPrefix, ''));
+      } else if(Array.isArray(arg)) {
+        arr[i] = self.resolveArguments(arg);
+      } else if(arg.constructor == Object) {
+        Object.keys(arg).forEach(function(k){
+          if(container.isId(arg[k]))
+            arg[k] = container.get(arg[k].replace(container.idPrefix, ''));
+        });
+      }
+
+    });
+
+    return arr;
+  };
+
+  /**
+   * Create an callable that can creates instances for this definitions
+   *
+   * @method
+   * @private
+   * @param  {string} fnParam the container parameter that contains the constructor or factory function
+   * @param  {string} type either 'c' for constructor or 'f' for factory
+   * @return {Function}
+   */
+  self._createCallable = function(fnParam, type) {
+    var res = false;
+
+    var getCheckCallable = function(p) {
+      var fn = false;
+      if(typeof p === 'function') {
+        fn = p;
+      } else {
+        try {
+          fn = container.getParameter(p.replace(container.idPrefix, ''));
+        } catch(e) {
+          throw new Error('Whene trying to instanciate service "'+self.id+'", the parameter specifying the '+((type == 'f') ? ('factory') : ('constructor'))+': "'+fnParam+'" did not exist.');
+        }
+      }
+      
+      if(typeof fn !== 'function') {
+        throw new Error('Whene trying to instanciate service "'+self.id+'", the parameter specifying the '+((type == 'f') ? ('factory') : ('constructor'))+': "'+fnParam+'" did not return a function, instead received: "'+fn+'"');
+      }
+
+      return fn;
+    };
+
+    function neu(constructor, args) {
+        var instance = Object.create(constructor.prototype);
+        var result = constructor.apply(instance, args);
+        return typeof result === 'object' ? result : instance;
+    }
+
+    //constructor type use new
+    if(type === 'c') {
+      res = function() {      
+        var _c = new getCheckCallable(fnParam);
+        var _args = self.resolveArguments();
+        return neu(_c, _args); 
+      };
+
+      return res;
+    } 
+
+    //factory type just call it
+    return function() {      
+        return getCheckCallable(fnParam).apply(container, self.resolveArguments()); //create using factory fn
+    };
+    
+  };
+
+  /**
+   * Apply an defintion configuration
+   * @param  {Object} conf
+   * @return {Definition}
+   * @chainable
+   */
+  self.configure = function(conf) {
+
+    //shared
+    if(conf.shared !== undefined) {
+        if(String(conf.shared).toLowerCase() === 'true') {
+          self.shared = true;
+        } else if(String(conf.shared).toLowerCase() === 'false') {
+          self.shared = false;
+        } else {
+          throw new Error('Configuration of "'+self.id+'" shared should be an boolean, received: "'+conf+'"');
+        }
+    }
+
+    //constructing
+    var fnParam = conf.constructorFn;
+    var type = 'c';
+    if(fnParam === undefined) {
+      fnParam = conf.factoryFn;
+      type = 'f';
+    } else if(conf.factoryFn !== undefined) {
+      throw new Error('Configuration of "'+self.id+'" should specify a constructor OR an factory function, not both - received: "'+conf+'"');
+    }
+
+    if(fnParam === undefined)
+      throw new Error('Configuration of "'+self.id+'" must either specify an constructor or an factory function - received: "'+conf+'"');
+
+    if(container.isId(fnParam) === false && typeof fnParam !== 'function') {
+      throw new Error('Constructor or an factory function of "'+self.id+'" should be specified using a parameter id - received: "'+fnParam+'"');
+    }
+
+    self.fn = self._createCallable(fnParam, type);
+
+    //arguments
+    var args = conf.arguments;
+    if(args !== undefined) {
+
+      if(!Array.isArray(args))
+        throw new Error('Instantiation arguments of "'+self.id+'" should be specified as an array - received: "'+args+'"');
+
+      args.forEach(function(arg){
+        self.addArgument(arg);
+      });
+
+    }
+
+    //tags
+    var tags = conf.tags;
+    if(tags !== undefined) {
+
+      if(!Array.isArray(tags))
+        throw new Error('Service tags of "'+self.id+'" should be specified as an array - received: "'+tags+'"');
+
+      tags.forEach(function(tag){
+        self.addTag(tag);
+      });
+
+    }
+
+    return self;
+  };
+
+  //configure the definition with the provided argument
+  self.configure(conf);
+
+};
+
+module.exports = Definition;
+},{}],41:[function(require,module,exports){
+var Definition = require('./definition.js');
+
+var Freight = function() {
+  var self = this;
+
+  /**
+   * Determin how service id are distinques of normal string arguments in configuration
+   * @type {String}
+   */
+  self.idPrefix = ':';
+
+  /**
+   * the array of definitions this container managers
+   * @type {Array}
+   * @private
+   */
+  self._definitions = [];
+
+  /**
+   * the hash with parameters this container holds
+   * @type {Object}
+   * @private
+   */
+  self._parameters = {};
+
+  /**
+   * Get and service of parameter from the container
+   *
+   * @method getService()
+   * @param  {string} id
+   * @return {mixed}
+   */
+  self.get = function get(id) {
+    var res = false;
+    try {
+      res = self.getParameter(id);  
+    } catch(e) {
+      res = self.getService(id);
+    }
+    
+    return res;
+  };
+
+  /**
+   * Check wether the string an parameter id
+   * @method isId()
+   * @param  {string}  str
+   * @return {Boolean}
+   */
+  self.isId = function isId(val) {
+    if(typeof val !== 'string')
+      return false;
+
+    return ((val.indexOf(self.idPrefix) === 0) ? (true) : (false));
+  };
+
+  /**
+   * Set a parameter on this container
+   * 
+   * @method setParameter()
+   * @param {string} id
+   * @param {mixed} val
+   * @chainable
+   */
+  self.setParameter = function setParameter(id, val) {
+    self._parameters[id] = val;
+    return self;
+  };
+
+  /**
+   * Retrieve a parameter from the container
+   * @param  {string} id
+   * @return {mixed}
+   */
+  self.getParameter = function getParameter(id) {
+    var res = self._parameters[id];
+    if(res === undefined)
+      throw new Error('Parameter "'+id+'" not found.');
+
+    return res;
+  };
+
+  /**
+   * Return an array of service ids from services with the given tag
+   *
+   * @method findTaggedServiceIds()
+   * @param  {string} tag
+   * @return {Array}
+   */
+  self.findTaggedServiceIds = function findTaggedServiceIds(tag) {
+    var res = [];
+    self._definitions.forEach(function(d){
+      if(d.tags.indexOf(tag) !== -1) {
+        res.push(d.id);
+      }
+    });
+    return res;
+  };
+
+  /**
+   * Return a service definition from the container
+   *
+   * @method getDefinition()
+   * @param  {string} id
+   * @return {Definition}
+   */
+  self.getDefinition = function getDefinition(id) {
+    var def = false;
+    self._definitions.forEach(function(d){
+      if(d.id == id) {
+        def = d;
+      }
+    });
+
+    return def;
+  };
+
+  /**
+   * Return an service by its id
+   *
+   * @method getService()
+   * @param  {string} id
+   * @return {mixed}
+   */
+  self.getService = function getService(id) {  
+    var def = self.getDefinition(id);
+
+    if(def === false)
+      throw new Error('Service "'+id+'" not found.');
+
+    var service = def.retrieve();
+
+    return service;
+  };
+
+
+  /**
+   * Register a new service as the specified id
+   * 
+   * @method register()
+   * @param  {string}   id
+   * @param  {Object} conf the configuration hash for the individual service
+   * @return {Definition}
+   */
+  self.register = function register(id, conf) {
+    var def = new Definition(id, conf, self);
+
+    self._definitions.push(def);
+    return def;
+  };
+
+  /**
+   * Register several definitions from an configuration hash (e.g. json)
+   * 
+   * @method  registerAll()
+   * @param  {Object} conf the services
+   * @return  {Array} a array of registered definitions
+   */
+  self.registerAll = function build(conf) {
+    var res = [];
+    Object.keys(conf).forEach(function(id){
+      res.push(self.register(id, conf[id]));
+    });
+    return res;
+  };
+
+};
+
+module.exports = Freight;
+},{"./definition.js":40}],42:[function(require,module,exports){
 var Resolver = function Resolver() {
   var self = this;
 
@@ -5047,7 +5027,7 @@ var Resolver = function Resolver() {
 };
 
 module.exports = Resolver;
-},{}],44:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 var State = function State(content) {
   var self = this;
 
@@ -5060,8 +5040,8 @@ var State = function State(content) {
 };
 
 module.exports = State;
-},{}],45:[function(require,module,exports){
-var Promise = require("bluebird");
+},{}],44:[function(require,module,exports){
+/* globals setTimeout, clearTimeout */
 var State = require('./state.js');
 
 /**
@@ -5070,10 +5050,34 @@ var State = require('./state.js');
  * @param {string} url    the url
  * @param {string} method the method
  */
-var Transit = function Transit(url, method) {
+var Transit = function Transit(url, Promise, method) {
   var self = this;
   var runResolver = Promise.defer();
   var attributes = {};
+  var timer;
+
+  /**
+   * Maximum time we wait for the controller to finish
+   * 
+   * @type {Number}
+   */
+  self.MAX_EXECUTION_TIME = 5000;
+
+  /**
+   * Start maximum execution timer
+   */
+  self.startTimeout = function startTimeout() {
+    timer = setTimeout(function(){
+      runResolver.reject('Controller for transit to url "' + self.url + '" exceeded maximum execution time of: "'+self.MAX_EXECUTION_TIME+'ms", did the controller call render?');
+    }, self.MAX_EXECUTION_TIME);
+  };
+
+  /**
+   * Stop timer that prevents maximum execution time
+   */
+  self.stopTimeout = function stopTimeout() {
+    clearTimeout(timer);
+  };
 
   /**
    * The new url we are transitioning to
@@ -5097,7 +5101,7 @@ var Transit = function Transit(url, method) {
    * The arguments that will be passed to the function
    * @type {Array}
    */
-  self.args = [];
+  self.arguments = [];
 
   /**
    * The function that acts as the controller
@@ -5135,6 +5139,18 @@ var Transit = function Transit(url, method) {
   };
 
   /**
+   * Add several attributes to the transit, does not remove existing
+   * attributes but does overwrite
+   * 
+   * @param {object} attrs the attributes
+   */
+  self.addAttributes = function addAttributes(attrs) {
+    Object.keys(attrs).forEach(function(key){
+      attributes[key] = attrs[key];
+    });
+  };
+
+  /**
    * Set transit specific attribut
    *
    * @method setAttribute()
@@ -5143,6 +5159,16 @@ var Transit = function Transit(url, method) {
    */
   self.setAttribute = function setAttribute(key, val) {
     attributes[key] = val;
+  };
+
+  /**
+   * Get all configured attributes of the transit
+   *
+   * @method getAttributes()
+   * @return {object} [description]
+   */
+  self.getAttributes = function getAttributes() {
+    return attributes;
   };
 
   /**
@@ -5198,7 +5224,7 @@ var Transit = function Transit(url, method) {
    * @param {Array} args the arguments
    */
   self.setArguments = function setArguments(args) {
-    self.args = args;
+    self.arguments = args;
   };
 
   /**
@@ -5255,8 +5281,8 @@ var Transit = function Transit(url, method) {
       throw new Error('Unable to find the controller for path "'+self.url+'". Maybe you forgot to add the matching route?');
     }
 
-    if(!Array.isArray(self.args)) {
-      throw new Error('Provided controller arguments should be an Array, received "'+self.args+'"');
+    if(!Array.isArray(self.arguments)) {
+      throw new Error('Provided controller arguments should be an Array, received "'+self.arguments+'"');
     }
 
     if(typeof self.scope !== 'object') {
@@ -5264,7 +5290,8 @@ var Transit = function Transit(url, method) {
     }
 
     //if controller returns something right away (sync), try to render it
-    var res = self.fn.apply(self.scope, self.args);
+    self.startTimeout();
+    var res = self.fn.apply(self.scope, [self]);
     if(res !== undefined) {
       self.render(res);
     }
@@ -5283,6 +5310,7 @@ var Transit = function Transit(url, method) {
   self.render = function render(result) {
     runResolver.resolve(result);
     self.result = result;
+    self.stopTimeout();
     
     if(!result) {
       throw new Error('Did you provide a value when rendering? received: "'+result+'"');
@@ -5304,7 +5332,7 @@ var Transit = function Transit(url, method) {
  * @param  {DOMEvent} e the event
  * @return {Transit}   the transit instance
  */
-Transit.createFromEvent = function(e) {
+Transit.createFromEvent = function(e, Promise) {
 
   if(e.currentTarget.hasAttribute('href') === false) 
     throw new Error('[CLIENT] normalize() expected clicked element "'+e.currentTarget+'" to have an href attribute.');
@@ -5314,7 +5342,7 @@ Transit.createFromEvent = function(e) {
     url = url.substring(url.indexOf('#')+1);
   }
 
-  var t = new Transit(url);
+  var t = new Transit(url, Promise);
   return t;
 };
 
@@ -5325,8 +5353,8 @@ Transit.createFromEvent = function(e) {
  * @param  {res} res express response
  * @return {Transit}     The transit instance
  */
-Transit.createFromReq = function(req, res) {
-  var t = new Transit(req.url, req.method);
+Transit.createFromReq = function(req, res, Promise) {
+  var t = new Transit(req.url, Promise, req.method);
 
   return t;
 };
@@ -5334,7 +5362,7 @@ Transit.createFromReq = function(req, res) {
 
 
 module.exports = Transit;
-},{"./state.js":44,"bluebird":8}],46:[function(require,module,exports){
+},{"./state.js":43}],45:[function(require,module,exports){
 var Resolver = require('ticket.js/src/resolver.js');
 var ServiceResolver = function(container) {
   var self = this;
@@ -5420,6 +5448,23 @@ var ServiceResolver = function(container) {
     return res.fn;
   };
 
+  /**
+   * Get the controller arguments by examining the attributes and
+   * the attached route name
+   * 
+   * @return {[type]} [description]
+   */
+  self.getArguments = function getArguments(transit) {
+    var res = [];
+    var attrs = transit.getAttributes();
+    Object.keys(attrs).forEach(function(key) {
+      if(key[0] !== '_') {
+        res.push(attrs[key]);
+      }
+    });
+    return res;
+  };
+
 
 };
 
@@ -5429,10 +5474,11 @@ ServiceResolver.prototype = new Resolver();
 ServiceResolver.prototype.constructor = ServiceResolver; 
 
 module.exports = ServiceResolver;
-},{"ticket.js/src/resolver.js":43}],47:[function(require,module,exports){
+},{"ticket.js/src/resolver.js":42}],46:[function(require,module,exports){
 var ServiceResolver = require('../../src/shared/resolver.js');
 var Freight = require('freight.js');
 var Transit = require('ticket.js/src/transit.js');
+var Promise = require('bluebird');
 
 describe('Collection', function(){
 
@@ -5446,7 +5492,7 @@ describe('Collection', function(){
   beforeEach(function(){
     f = new Freight();
     r = new ServiceResolver(f);
-    t = new Transit('/index');
+    t = new Transit('/index', Promise);
   });
 
   it("Construction, check interface", function(){
@@ -5528,7 +5574,18 @@ describe('Collection', function(){
 
   });
 
+  it("get arguments", function(){
+
+    t.setAttribute('_controller', 'controllers.default:index');
+    t.setAttribute('name', 'test');
+
+    var args = r.getArguments(t);
+    args.length.should.equal(1);
+    args[0].should.equal('test');
+
+  });
+
 
 });
-},{"../../src/shared/resolver.js":46,"freight.js":2,"ticket.js/src/transit.js":45}]},{},[47])
+},{"../../src/shared/resolver.js":45,"bluebird":4,"freight.js":39,"ticket.js/src/transit.js":44}]},{},[46])
 ;

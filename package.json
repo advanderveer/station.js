@@ -1,6 +1,6 @@
 {
   "name": "station.js",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "description": "A isomorphic framework that takes an very decoupled and configurable approach. This module provides bridges the functionality of the different components.",
   "main": "index.js",
   "scripts": {
@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "freight.js": "~0.2.1",
-    "ticket.js": "~0.1.2"
+    "ticket.js": "~0.2.1",
+    "bluebird": "~0.10.3-0"
   }
 }

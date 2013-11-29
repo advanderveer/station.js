@@ -83,6 +83,23 @@ var ServiceResolver = function(container) {
     return res.fn;
   };
 
+  /**
+   * Get the controller arguments by examining the attributes and
+   * the attached route name
+   * 
+   * @return {[type]} [description]
+   */
+  self.getArguments = function getArguments(transit) {
+    var res = [];
+    var attrs = transit.getAttributes();
+    Object.keys(attrs).forEach(function(key) {
+      if(key[0] !== '_') {
+        res.push(attrs[key]);
+      }
+    });
+    return res;
+  };
+
 
 };
 

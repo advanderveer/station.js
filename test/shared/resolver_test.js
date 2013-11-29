@@ -1,6 +1,7 @@
 var ServiceResolver = require('../../src/shared/resolver.js');
 var Freight = require('freight.js');
 var Transit = require('ticket.js/src/transit.js');
+var Promise = require('bluebird');
 
 describe('Collection', function(){
 
@@ -14,7 +15,7 @@ describe('Collection', function(){
   beforeEach(function(){
     f = new Freight();
     r = new ServiceResolver(f);
-    t = new Transit('/index');
+    t = new Transit('/index', Promise);
   });
 
   it("Construction, check interface", function(){
@@ -93,6 +94,17 @@ describe('Collection', function(){
     fn = r.getFunction(t);
     
     fn.should.equal(defaultController.index);
+
+  });
+
+  it("get arguments", function(){
+
+    t.setAttribute('_controller', 'controllers.default:index');
+    t.setAttribute('name', 'test');
+
+    var args = r.getArguments(t);
+    args.length.should.equal(1);
+    args[0].should.equal('test');
 
   });
 
