@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="en"><head><title>shared/resolver</title></head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0"><meta name="groc-relative-root" content="../"><meta name="groc-document-path" content="shared/resolver"><meta name="groc-project-path" content="src/shared/resolver.js"><link rel="stylesheet" type="text/css" media="all" href="../assets/style.css"><script type="text/javascript" src="../assets/behavior.js"></script><body><div id="meta"><div class="file-path">src/shared/resolver.js</div></div><div id="document"><div class="segment"><div class="code"><div class="wrapper"><span class="kd">var</span> <span class="nx">Resolver</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">&#39;ticket.js/src/resolver.js&#39;</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">ServiceResolver</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">container</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">self</span> <span class="o">=</span> <span class="k">this</span><span class="p">;</span>
+  <span class="kd">var</span> <span class="nx">parent</span> <span class="o">=</span> <span class="nx">ServiceResolver</span><span class="p">.</span><span class="nx">prototype</span><span class="p">;</span>
+
+  <span class="kd">var</span> <span class="nx">getControllerAttribute</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">transit</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span><span class="p">(</span><span class="nx">transit</span><span class="p">.</span><span class="nx">hasAttribute</span><span class="p">(</span><span class="s1">&#39;_controller&#39;</span><span class="p">))</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">transit</span><span class="p">.</span><span class="nx">getAttribute</span><span class="p">(</span><span class="s1">&#39;_controller&#39;</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="kc">false</span><span class="p">;</span>
+  <span class="p">};</span>
+
+  <span class="kd">var</span> <span class="nx">getControllerService</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">str</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">args</span> <span class="o">=</span> <span class="nx">str</span><span class="p">.</span><span class="nx">split</span><span class="p">(</span><span class="nx">self</span><span class="p">.</span><span class="nx">ACTION_SEPERATOR</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">ids</span> <span class="o">=</span> <span class="nx">container</span><span class="p">.</span><span class="nx">findTaggedServiceIds</span><span class="p">(</span><span class="nx">self</span><span class="p">.</span><span class="nx">CONTROLLER_TAG</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">id</span> <span class="o">=</span> <span class="nx">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+
+    <span class="k">if</span><span class="p">(</span><span class="nx">ids</span><span class="p">.</span><span class="nx">indexOf</span><span class="p">(</span><span class="nx">id</span><span class="p">)</span> <span class="o">===</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+      <span class="k">throw</span> <span class="k">new</span> <span class="nb">Error</span><span class="p">(</span><span class="s1">&#39;Could not find an controller named: &quot;&#39;</span><span class="o">+</span><span class="nx">str</span><span class="o">+</span><span class="s1">&#39;&quot;, registered services under tag &quot;&#39;</span><span class="o">+</span><span class="nx">self</span><span class="p">.</span><span class="nx">CONTROLLER_TAG</span><span class="o">+</span><span class="s1">&#39;&quot;: [&#39;</span> <span class="o">+</span> <span class="nx">ids</span> <span class="o">+</span> <span class="s1">&#39;]&#39;</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">controller</span> <span class="o">=</span> <span class="nx">container</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="nx">id</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">action</span> <span class="o">=</span> <span class="nx">args</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+
+    <span class="k">if</span><span class="p">(</span><span class="k">typeof</span> <span class="nx">controller</span><span class="p">[</span><span class="nx">action</span><span class="p">]</span> <span class="o">!==</span> <span class="s1">&#39;function&#39;</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">throw</span> <span class="k">new</span> <span class="nb">Error</span><span class="p">(</span><span class="s1">&#39;The provided controller &quot;&#39;</span><span class="o">+</span><span class="nx">id</span><span class="o">+</span><span class="s1">&#39;&quot; does not have function named: &quot;&#39;</span><span class="o">+</span><span class="nx">action</span><span class="o">+</span><span class="s1">&#39;&quot;&#39;</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+      <span class="nx">scope</span><span class="o">:</span> <span class="nx">controller</span><span class="p">,</span>
+      <span class="nx">fn</span><span class="o">:</span> <span class="nx">controller</span><span class="p">[</span><span class="nx">action</span><span class="p">]</span> 
+    <span class="p">};</span>
+  <span class="p">};</span></div></div></div><div class="segment"><div class="comments doc-section"><div class="wrapper"><p><span class='doc-section-header'> </span></p>
+
+<p>The container used for resolving</p></div></div><div class="code"><div class="wrapper">  <span class="nx">self</span><span class="p">.</span><span class="nx">container</span> <span class="o">=</span> <span class="nx">container</span><span class="p">;</span></div></div></div><div class="segment"><div class="comments doc-section"><div class="wrapper"><p><span class='doc-section-header'> </span></p>
+
+<p>The tag that indicates controller services</p></div></div><div class="code"><div class="wrapper">  <span class="nx">self</span><span class="p">.</span><span class="nx">ACTION_SEPERATOR</span> <span class="o">=</span> <span class="s1">&#39;:&#39;</span><span class="p">;</span></div></div></div><div class="segment"><div class="comments doc-section"><div class="wrapper"><p><span class='doc-section-header'> </span></p>
+
+<p>The tag that indicates controller services</p></div></div><div class="code"><div class="wrapper">  <span class="nx">self</span><span class="p">.</span><span class="nx">CONTROLLER_TAG</span> <span class="o">=</span> <span class="s1">&#39;controller&#39;</span><span class="p">;</span></div></div></div><div class="segment"><div class="comments doc-section"><div class="wrapper"><p><span class='doc-section-header'></span></p>
+
+<p>Get the controller object from the dependency container</p>
+
+<p>Parameters:</p>
+
+<ul>
+<li><strong>transit must be a Transit.</strong><br/>(the transit)</li>
+</ul>
+
+<p><strong>Returns an Object</strong><br/>(the object (scope))</p></div></div><div class="code"><div class="wrapper">  <span class="nx">self</span><span class="p">.</span><span class="nx">getScope</span> <span class="o">=</span> <span class="kd">function</span> <span class="nx">getScope</span><span class="p">(</span><span class="nx">transit</span><span class="p">)</span> <span class="p">{</span>
+
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">getControllerAttribute</span><span class="p">(</span><span class="nx">transit</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="k">typeof</span> <span class="nx">str</span> <span class="o">!==</span> <span class="s1">&#39;string&#39;</span><span class="p">)</span>
+      <span class="k">return</span> <span class="nx">parent</span><span class="p">.</span><span class="nx">getScope</span><span class="p">(</span><span class="nx">transit</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">res</span> <span class="o">=</span> <span class="nx">getControllerService</span><span class="p">(</span><span class="nx">str</span><span class="p">);</span>
+    <span class="k">return</span> <span class="nx">res</span><span class="p">.</span><span class="nx">scope</span><span class="p">;</span>
+  <span class="p">};</span></div></div></div><div class="segment"><div class="comments doc-section"><div class="wrapper"><p><span class='doc-section-header'></span></p>
+
+<p>Get the function from the dependency container</p>
+
+<p>Parameters:</p>
+
+<ul>
+<li><strong>transit must be a Transit.</strong><br/>(the transit)</li>
+</ul>
+
+<p><strong>Returns a Function</strong><br/>(the function)</p></div></div><div class="code"><div class="wrapper">  <span class="nx">self</span><span class="p">.</span><span class="nx">getFunction</span> <span class="o">=</span> <span class="kd">function</span> <span class="nx">getFunction</span><span class="p">(</span><span class="nx">transit</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">str</span> <span class="o">=</span> <span class="nx">getControllerAttribute</span><span class="p">(</span><span class="nx">transit</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="k">typeof</span> <span class="nx">str</span> <span class="o">!==</span> <span class="s1">&#39;string&#39;</span><span class="p">)</span>
+      <span class="k">return</span> <span class="nx">parent</span><span class="p">.</span><span class="nx">getFunction</span><span class="p">(</span><span class="nx">transit</span><span class="p">);</span>
+
+    <span class="kd">var</span> <span class="nx">res</span> <span class="o">=</span> <span class="nx">getControllerService</span><span class="p">(</span><span class="nx">str</span><span class="p">);</span>
+    <span class="k">return</span> <span class="nx">res</span><span class="p">.</span><span class="nx">fn</span><span class="p">;</span>
+  <span class="p">};</span>
+
+
+<span class="p">};</span>
+
+
+<span class="c1">//extends basic resolver</span>
+<span class="nx">ServiceResolver</span><span class="p">.</span><span class="nx">prototype</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Resolver</span><span class="p">();</span>
+<span class="nx">ServiceResolver</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">=</span> <span class="nx">ServiceResolver</span><span class="p">;</span> 
+
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span> <span class="o">=</span> <span class="nx">ServiceResolver</span><span class="p">;</span></div></div></div></div></body></html>
